@@ -1,0 +1,43 @@
+# Configuration files with sensitive information
+*_db_clone.conf
+
+# Log files
+*.log
+
+# Backup directory
+backups/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+
+# PostgreSQL dump files
+*.sql
+*.dump
+*.backup
+
+# Password files
+passwords_*.txt
+credentials_*.txt
+.credentials_temp

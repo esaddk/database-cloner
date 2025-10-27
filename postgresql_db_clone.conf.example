@@ -1,0 +1,41 @@
+# PostgreSQL Database Cloning Configuration Example
+# ================================================
+# Copy this file to db_clone.conf and modify the settings according to your needs
+
+# Database connection settings
+PG_HOST=localhost
+PG_PORT=5432
+PG_SUPERUSER=postgres
+PG_SUPERUSER_PASSWORD=your_superuser_password_here
+
+# Load balancer settings for connection testing
+# Leave empty to skip connection testing
+LB_HOST=your-loadbalancer-host
+LB_PORT=5432
+
+# Database prefix for cloned databases
+# All cloned databases will have this prefix
+DB_PREFIX=preprod_
+
+# Databases to clone (comma-separated)
+# Users will be automatically created for all databases in this list
+DATABASES_TO_CLONE=myapp_db,analytics_db,user_management
+
+# Role naming conventions
+# App role prefix for DML users (read-write)
+APP_ROLE_PREFIX=r_rw_
+# Owner role prefix for DDL users (read-create)
+OWNER_ROLE_PREFIX=r_rc_
+
+# Additional settings
+# Skip backing up public schema during backup (true/false)
+SKIP_PUBLIC_SCHEMA_BACKUP=false
+# Create backup before cloning (true/false)
+CREATE_BACKUP_BEFORE_CLONE=true
+
+# Backup directory (relative to script directory)
+BACKUP_DIR=./backups
+
+# Log file (relative to script directory)
+# If not specified, defaults to: postgre_db_cloner_DDMMYY.log
+# LOG_FILE=./custom_clone.log
