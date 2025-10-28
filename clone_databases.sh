@@ -294,38 +294,34 @@ create_users() {
 
     # Change ownership of all tables in the schema
     PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
-        -d "$target_db" -c "SELECT 'ALTER TABLE ' || schemaname || '.' || tablename || ' OWNER TO $owner_user_name;'
-        FROM pg_tables WHERE schemaname = '$owner_user_name';" | \
-        PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
-        -d "$target_db" -a 2>> "$LOG_FILE"
+        -d "$target_db" -c "DO \$\$
+        DECLARE
+            r RECORD;
+        BEGIN
+            FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = '$owner_user_name' LOOP
+                EXECUTE 'ALTER TABLE ' || quote_ident('$owner_user_name') || '.' || quote_ident(r.tablename) || ' OWNER TO $owner_user_name;';
+            END LOOP;
+        END \$\$;" 2>> "$LOG_FILE"
 
     # Change ownership of all sequences in the schema
-    PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
-        -d "$target_db" -c "SELECT 'ALTER SEQUENCE ' || sequence_schema || '.' || sequence_name || ' OWNER TO $owner_user_name;'
-        FROM information_schema.sequences WHERE sequence_schema = '$owner_user_name';" | \
-        PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
-        -d "$target_db" -a 2>> "$LOG_FILE"
-
-    # Change ownership of all views in the schema
-    PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
-        -d "$target_db" -c "SELECT 'ALTER VIEW ' || table_schema || '.' || table_name || ' OWNER TO $owner_user_name;'
-        FROM information_schema.views WHERE table_schema = '$owner_user_name';" | \
-        PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
-        -d "$target_db" -a 2>> "$LOG_FILE"
-
-    # Change ownership of all functions in the schema
     PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
         -d "$target_db" -c "DO \$\$
         DECLARE
             r RECORD;
         BEGIN
-            FOR r IN
-                SELECT p.proname, pg_catalog.pg_get_function_identity_arguments(p.oid) as args
-                FROM pg_catalog.pg_proc p
-                JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-                WHERE n.nspname = '$owner_user_name'
-            LOOP
-                EXECUTE 'ALTER FUNCTION ' || quote_ident('$owner_user_name') || '.' || quote_ident(r.proname) || '(' || r.args || ') OWNER TO $owner_user_name;';
+            FOR r IN SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = '$owner_user_name' LOOP
+                EXECUTE 'ALTER SEQUENCE ' || quote_ident('$owner_user_name') || '.' || quote_ident(r.sequence_name) || ' OWNER TO $owner_user_name;';
+            END LOOP;
+        END \$\$;" 2>> "$LOG_FILE"
+
+    # Change ownership of all views in the schema
+    PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
+        -d "$target_db" -c "DO \$\$
+        DECLARE
+            r RECORD;
+        BEGIN
+            FOR r IN SELECT table_name FROM information_schema.views WHERE table_schema = '$owner_user_name' LOOP
+                EXECUTE 'ALTER VIEW ' || quote_ident('$owner_user_name') || '.' || quote_ident(r.table_name) || ' OWNER TO $owner_user_name;';
             END LOOP;
         END \$\$;" 2>> "$LOG_FILE"
 
