@@ -289,6 +289,46 @@ create_users() {
     PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
         -d postgres -c "GRANT $owner_role_name TO $owner_user_name;" 2>> "$LOG_FILE"
 
+    # Step 9: Change table and sequence ownership to match new schema owner
+    log_info "Step 9: Updating table and sequence ownership to $owner_user_name"
+
+    # Change ownership of all tables in the schema
+    PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
+        -d "$target_db" -c "SELECT 'ALTER TABLE ' || schemaname || '.' || tablename || ' OWNER TO $owner_user_name;'
+        FROM pg_tables WHERE schemaname = '$owner_user_name';" | \
+        PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
+        -d "$target_db" -a 2>> "$LOG_FILE"
+
+    # Change ownership of all sequences in the schema
+    PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
+        -d "$target_db" -c "SELECT 'ALTER SEQUENCE ' || sequence_schema || '.' || sequence_name || ' OWNER TO $owner_user_name;'
+        FROM information_schema.sequences WHERE sequence_schema = '$owner_user_name';" | \
+        PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
+        -d "$target_db" -a 2>> "$LOG_FILE"
+
+    # Change ownership of all views in the schema
+    PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
+        -d "$target_db" -c "SELECT 'ALTER VIEW ' || table_schema || '.' || table_name || ' OWNER TO $owner_user_name;'
+        FROM information_schema.views WHERE table_schema = '$owner_user_name';" | \
+        PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
+        -d "$target_db" -a 2>> "$LOG_FILE"
+
+    # Change ownership of all functions in the schema
+    PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
+        -d "$target_db" -c "DO \$\$
+        DECLARE
+            r RECORD;
+        BEGIN
+            FOR r IN
+                SELECT p.proname, pg_catalog.pg_get_function_identity_arguments(p.oid) as args
+                FROM pg_catalog.pg_proc p
+                JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+                WHERE n.nspname = '$owner_user_name'
+            LOOP
+                EXECUTE 'ALTER FUNCTION ' || quote_ident('$owner_user_name') || '.' || quote_ident(r.proname) || '(' || r.args || ') OWNER TO $owner_user_name;';
+            END LOOP;
+        END \$\$;" 2>> "$LOG_FILE"
+
     log_success "User configuration completed for database: $target_db"
     log_info "Created users: $app_user_name (app), $owner_user_name (owner)"
     log_info "Created roles: $app_role_name (app), $owner_role_name (owner)"
