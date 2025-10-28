@@ -187,8 +187,8 @@ create_users() {
     fi
 
     # Generate usernames automatically
-    local owner_user_name="${base_db_name}_user_owner"
-    local app_user_name="${base_db_name}_user"
+    local owner_user_name="${DB_PREFIX}${base_db_name}_user_owner"
+    local app_user_name="${DB_PREFIX}${base_db_name}_user"
 
     # Generate passwords automatically
     local password_owner=$(generate_password 16)
@@ -198,8 +198,8 @@ create_users() {
     log_info "Owner user: $owner_user_name, App user: $app_user_name"
 
     # Define role names
-    local app_role_name="${APP_ROLE_PREFIX}${base_db_name}"
-    local owner_role_name="${OWNER_ROLE_PREFIX}${base_db_name}"
+    local app_role_name="${APP_ROLE_PREFIX}${DB_PREFIX}${base_db_name}"
+    local owner_role_name="${OWNER_ROLE_PREFIX}${DB_PREFIX}${base_db_name}"
 
     # Step 1: Rename source schema to owner_user_name
     log_info "Step 1: Renaming schema '$SOURCE_SCHEMA_NAME' to $owner_user_name"
@@ -338,8 +338,8 @@ test_user_connections() {
         base_db_name="${target_db#$DB_PREFIX}"
     fi
 
-    local app_user_name="${base_db_name}_user"
-    local owner_user_name="${base_db_name}_user_owner"
+    local app_user_name="${DB_PREFIX}${base_db_name}_user"
+    local owner_user_name="${DB_PREFIX}${base_db_name}_user_owner"
 
     # Skip testing if LB_HOST is not configured
     if [[ -z "${LB_HOST:-}" ]]; then
