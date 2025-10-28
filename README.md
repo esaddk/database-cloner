@@ -55,10 +55,7 @@ A comprehensive shell script tool to clone databases with custom prefixes and cr
    cp mongodb_db_clone.conf.example mongodb_db_clone.conf
    ```
 3. Edit the configuration file with your database settings
-4. Make the script executable:
-   ```bash
-   chmod +x clone_databases.sh
-   ```
+4. The script executable permissions are preserved by Git (configured in .gitattributes)
 
 ## Usage
 
@@ -107,12 +104,15 @@ Configuration files are database-specific and follow the naming pattern: `{db_ty
 
 #### User Configuration
 Users are automatically created for all databases in `DATABASES_TO_CLONE`:
-- Auto-generates usernames based on database name:
-  - App user: `{database_name}_user`
-  - Owner user: `{database_name}_owner`
+- Auto-generates usernames based on database name with prefix:
+  - App user: `{DB_PREFIX}{database_name}_user`
+  - Owner user: `{DB_PREFIX}{database_name}_user_owner`
   - Passwords are auto-generated (16 characters with letters and numbers)
 - `APP_ROLE_PREFIX`: Prefix for app user roles (default: `r_rw_` - read-write)
 - `OWNER_ROLE_PREFIX`: Prefix for owner user roles (default: `r_rc_` - read-create)
+
+#### Schema Configuration
+- `SOURCE_SCHEMA_NAME`: Source schema name to rename (defaults to `public` if not specified)
 
 #### Additional Options
 - `CREATE_BACKUP_BEFORE_CLONE`: Create backup before cloning (true/false)
@@ -168,13 +168,13 @@ LB_HOST=postgres-lb.company.com
 
 The script will create:
 - Database: `preprod_superapp_db` (clone of `superapp_db`)
-- Schema: `superapp_db_owner` (renamed from `public`)
+- Schema: `preprod_superapp_db_user_owner` (renamed from source schema)
 - Users:
-  - `superapp_db_user` (app user with auto-generated password, DML privileges)
-  - `superapp_db_owner` (owner user with auto-generated password, full privileges)
+  - `preprod_superapp_db_user` (app user with auto-generated password, DML privileges)
+  - `preprod_superapp_db_user_owner` (owner user with auto-generated password, full privileges)
 - Roles:
-  - `r_rw_superapp_db` (app role with DML privileges - read-write)
-  - `r_rc_superapp_db` (owner role with full privileges - read-create)
+  - `r_rw_preprod_superapp_db` (app role with DML privileges - read-write)
+  - `r_rc_preprod_superapp_db` (owner role with full privileges - read-create)
 
 ## Database-Specific Features
 
@@ -183,17 +183,18 @@ The script will create:
 #### Schema-Based Security Approach
 The script implements a comprehensive security model:
 
-1. **Renames public schema** to the owner user name
+1. **Renames source schema** (configurable, defaults to `public`) to the owner user name
 2. **Sets search_path** to prioritize the new schema
-3. **Revokes default privileges** from public
+3. **Revokes default privileges** from source schema
+4. **Changes ownership** of all tables, sequences, and views to the new owner user
 
 #### User Creation
-- **App User**: `{database_name}_user` (auto-generated) - DML operations only
-- **Owner User**: `{database_name}_owner` (auto-generated) - Full privileges on schema
+- **App User**: `{DB_PREFIX}{database_name}_user` (auto-generated) - DML operations only
+- **Owner User**: `{DB_PREFIX}{database_name}_user_owner` (auto-generated) - Full privileges on schema
 - **Auto-generated usernames and passwords** for enhanced security
 
 #### Role-Based Privileges
-- **App Role** (`r_rw_{database_name}` - read-write):
+- **App Role** (`r_rw_{DB_PREFIX}{database_name}` - read-write):
   - CONNECT on database
   - USAGE on schema
   - SELECT, INSERT, UPDATE, DELETE on all tables
@@ -201,7 +202,7 @@ The script implements a comprehensive security model:
   - EXECUTE on functions
   - Default privileges for future objects
 
-- **Owner Role** (`r_rc_{database_name}` - read-create):
+- **Owner Role** (`r_rc_{DB_PREFIX}{database_name}` - read-create):
   - All app role privileges
   - CREATE on schema and database
   - TEMPORARY on database
@@ -246,18 +247,18 @@ Generated on: Mon Oct 27 12:00:00 UTC 2025
 ===============================================
 
 database name : preprod_superapp_db
-schema: superapp_db_owner
-app user: superapp_db_user
+schema: preprod_superapp_db_user_owner
+app user: preprod_superapp_db_user
 password: AbC123xYz456DeF
-owner user: superapp_db_owner
+owner user: preprod_superapp_db_user_owner
 password: GhI789jKl012MnO
 LB: postgres-lb.company.com:5432
 
 database name : preprod_analytics_db
-schema: analytics_db_owner
-app user: analytics_db_user
+schema: preprod_analytics_db_user_owner
+app user: preprod_analytics_db_user
 password: PqR345sTu678VwX
-owner user: analytics_db_owner
+owner user: preprod_analytics_db_user_owner
 password: YzA901bCd234EfG
 LB: postgres-lb.company.com:5432
 
@@ -316,6 +317,9 @@ database-cloner/
 - [x] Load balancer testing
 - [x] Connection checking
 - [x] Credential management
+- [x] Configurable source schema name
+- [x] Object ownership transfer
+- [x] Consistent prefix naming for all objects
 
 ### Phase 2: MySQL (📋 Planned)
 - [ ] Database cloning configuration
