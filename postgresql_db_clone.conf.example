@@ -27,6 +27,10 @@ APP_ROLE_PREFIX=r_rw_
 # Owner role prefix for DDL users (read-create)
 OWNER_ROLE_PREFIX=r_rc_
 
+# Schema settings
+# Source schema name to rename (defaults to "public" if not specified)
+SOURCE_SCHEMA_NAME=public
+
 # Additional settings
 # Skip backing up public schema during backup (true/false)
 SKIP_PUBLIC_SCHEMA_BACKUP=false

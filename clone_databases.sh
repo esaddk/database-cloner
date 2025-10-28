@@ -84,6 +84,7 @@ read_config() {
     # Set default values for optional variables
     APP_ROLE_PREFIX="${APP_ROLE_PREFIX:-r_rw_}"
     OWNER_ROLE_PREFIX="${OWNER_ROLE_PREFIX:-r_rc_}"
+    SOURCE_SCHEMA_NAME="${SOURCE_SCHEMA_NAME:-public}"
 
     log_success "Configuration loaded successfully"
 }
@@ -200,15 +201,15 @@ create_users() {
     local app_role_name="${APP_ROLE_PREFIX}${base_db_name}"
     local owner_role_name="${OWNER_ROLE_PREFIX}${base_db_name}"
 
-    # Step 1: Rename public schema to owner_user_name
-    log_info "Step 1: Renaming public schema to $owner_user_name"
+    # Step 1: Rename source schema to owner_user_name
+    log_info "Step 1: Renaming schema '$SOURCE_SCHEMA_NAME' to $owner_user_name"
     PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
-        -d "$target_db" -c "ALTER SCHEMA public RENAME TO $owner_user_name;" 2>> "$LOG_FILE"
+        -d "$target_db" -c "ALTER SCHEMA \"$SOURCE_SCHEMA_NAME\" RENAME TO $owner_user_name;" 2>> "$LOG_FILE"
 
     # Step 2: Set search_path to include both schemas
-    log_info "Step 2: Setting search_path to $owner_user_name, public"
+    log_info "Step 2: Setting search_path to $owner_user_name, $SOURCE_SCHEMA_NAME"
     PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
-        -d "$target_db" -c "ALTER DATABASE $target_db SET search_path TO $owner_user_name, public;" 2>> "$LOG_FILE"
+        -d "$target_db" -c "ALTER DATABASE $target_db SET search_path TO $owner_user_name, $SOURCE_SCHEMA_NAME;" 2>> "$LOG_FILE"
 
     # Step 3: Create users
     log_info "Step 3: Creating users"
@@ -223,13 +224,13 @@ create_users() {
     PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
         -d "$target_db" -c "GRANT CONNECT ON DATABASE $target_db TO $owner_user_name;" 2>> "$LOG_FILE"
 
-    # Step 5: Revoke default privileges from public
-    log_info "Step 5: Revoking default privileges from public"
+    # Step 5: Revoke default privileges from $SOURCE_SCHEMA_NAME
+    log_info "Step 5: Revoking default privileges from $SOURCE_SCHEMA_NAME"
     PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
-        -d "$target_db" -c "REVOKE ALL ON DATABASE $target_db FROM public;" 2>> "$LOG_FILE"
+        -d "$target_db" -c "REVOKE ALL ON DATABASE $target_db FROM $SOURCE_SCHEMA_NAME;" 2>> "$LOG_FILE"
 
     PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" \
-        -d "$target_db" -c "REVOKE CREATE ON SCHEMA $owner_user_name FROM public;" 2>> "$LOG_FILE"
+        -d "$target_db" -c "REVOKE CREATE ON SCHEMA $owner_user_name FROM $SOURCE_SCHEMA_NAME;" 2>> "$LOG_FILE"
 
     # Step 6: Create and configure app role
     log_info "Step 6: Creating and configuring app role: $app_role_name"
