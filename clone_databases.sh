@@ -186,7 +186,7 @@ create_users() {
     fi
 
     # Generate usernames automatically
-    local owner_user_name="${base_db_name}_owner"
+    local owner_user_name="${base_db_name}_user_owner"
     local app_user_name="${base_db_name}_user"
 
     # Generate passwords automatically
@@ -338,7 +338,7 @@ test_user_connections() {
     fi
 
     local app_user_name="${base_db_name}_user"
-    local owner_user_name="${base_db_name}_owner"
+    local owner_user_name="${base_db_name}_user_owner"
 
     # Skip testing if LB_HOST is not configured
     if [[ -z "${LB_HOST:-}" ]]; then
