@@ -26,7 +26,11 @@ log() {
     shift
     local message="$*"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo -e "${timestamp} [${level}] ${message}" | tee -a "$LOG_FILE"
+    if [[ -n "${LOG_FILE:-}" ]]; then
+        echo -e "${timestamp} [${level}] ${message}" | tee -a "$LOG_FILE"
+    else
+        echo -e "${timestamp} [${level}] ${message}"
+    fi
 }
 
 log_info() {
