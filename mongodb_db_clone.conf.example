@@ -1,0 +1,43 @@
+# MongoDB Database Cloning Configuration Example
+# ================================================
+# Copy this file to mongodb_db_clone.conf and modify the settings according to your needs
+
+# Primary node for dump/restore operations (single node for admin operations)
+# Use the primary node or a specific node that has admin access
+MONGO_PRIMARY_HOST=localhost
+MONGO_PRIMARY_PORT=27017
+MONGO_ADMIN_USER=admin
+MONGO_ADMIN_PASSWORD=your_admin_password_here
+MONGO_AUTH_DATABASE=admin
+
+# Connection string template for testing user connections (replica set configuration)
+# Variables: <<USERNAME>>, <<PASSWORD>>, <<DB_NAME>>
+# Example: mongodb://<<USERNAME>>:<<PASSWORD>>@host1:27017,host2:27017,host3:27017/<<DB_NAME>>?replicaSet=rs-shared-stage&readPreference=secondaryPreferred
+MONGO_USER_CONNSTRING_TEMPLATE=mongodb://<<USERNAME>>:<<PASSWORD>>@192.168.3.68:27017,192.168.3.174:27017,192.168.3.182:27017/<<DB_NAME>>?replicaSet=rs-shared-stage&readPreference=secondaryPreferred
+
+# Database prefix for cloned databases
+# All cloned databases will have this prefix
+DB_PREFIX=preprod_
+
+# Databases to clone (comma-separated)
+# Users will be automatically created for all databases in this list
+DATABASES_TO_CLONE=myapp,analytics,user_management
+
+# User role settings
+# App user suffix for read-write users
+MONGO_APP_USER_SUFFIX=_app_user
+
+# Connection testing settings
+# Test user connections after creation (true/false)
+TEST_USER_CONNECTIONS=true
+
+# Additional settings
+# Create backup before cloning (true/false)
+CREATE_BACKUP_BEFORE_CLONE=true
+
+# Backup directory (relative to script directory)
+BACKUP_DIR=./backups
+
+# Log file (relative to script directory)
+# If not specified, defaults to: mongodb_db_cloner_DDMMYY.log
+# LOG_FILE=./custom_mongo_clone.log

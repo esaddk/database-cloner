@@ -1,19 +1,24 @@
 # Database Cloner
 
-A comprehensive shell script tool to clone databases with custom prefixes and create users with different privilege levels. Currently supports PostgreSQL with planned support for MySQL and MongoDB.
+A comprehensive shell script tool to clone databases with custom prefixes and create users with different privilege levels. Currently supports PostgreSQL and MongoDB with planned support for MySQL.
 
 ## Features
 
 - **Multi-Database Support**: Extensible architecture for multiple database types
   - **PostgreSQL**: Currently implemented with full feature set
+  - **MongoDB**: Currently implemented with full feature set
   - **MySQL**: Planned support
-  - **MongoDB**: Planned support
-- **Schema-based security approach**:
-  - Renames default schema to owner name
-  - Creates two types of users for each cloned database:
-    - **App Users**: DML only (SELECT, INSERT, UPDATE, DELETE)
-    - **Owner Users**: Full privileges (DDL + DML)
-  - Uses role-based privilege management
+- **Database-specific security approaches**:
+  - **PostgreSQL**: Schema-based security
+    - Renames default schema to owner name
+    - Creates two types of users for each cloned database:
+      - **App Users**: DML only (SELECT, INSERT, UPDATE, DELETE)
+      - **Owner Users**: Full privileges (DDL + DML)
+    - Uses role-based privilege management
+  - **MongoDB**: Role-based access control (RBAC)
+    - Creates app users for each cloned database:
+      - **App Users**: readWrite role
+    - Uses MongoDB's built-in role system
 - **Automatic backup before cloning** (optional)
 - **Active connection checking** before operations
 - **Load balancer connection testing** (optional)
@@ -36,8 +41,8 @@ A comprehensive shell script tool to clone databases with custom prefixes and cr
 - MySQL client tools (`mysql`, `mysqldump`)
 - Superuser access to MySQL server
 
-#### MongoDB (Planned)
-- MongoDB client tools (`mongodump`, `mongorestore`, `mongo`/`mongosh`)
+#### MongoDB (Currently Supported)
+- MongoDB client tools (`mongodump`, `mongorestore`, `mongosh`)
 - Admin user access to MongoDB server
 
 ## Installation
@@ -51,7 +56,7 @@ A comprehensive shell script tool to clone databases with custom prefixes and cr
    # For MySQL (when available)
    cp mysql_db_clone.conf.example mysql_db_clone.conf
 
-   # For MongoDB (when available)
+   # For MongoDB
    cp mongodb_db_clone.conf.example mongodb_db_clone.conf
    ```
 3. Edit the configuration file with your database settings
@@ -69,7 +74,7 @@ A comprehensive shell script tool to clone databases with custom prefixes and cr
 # Set database type via environment variable
 DB_TYPE=postgresql ./clone_databases.sh
 DB_TYPE=mysql ./clone_databases.sh      # Future support
-DB_TYPE=mongodb ./clone_databases.sh    # Future support
+DB_TYPE=mongodb ./clone_databases.sh
 ```
 
 The script will:
@@ -138,21 +143,29 @@ MYSQL_APP_USER_PREFIX=_app_user
 MYSQL_OWNER_USER_PREFIX=_owner_user
 ```
 
-#### MongoDB Configuration (`mongodb_db_clone.conf`) - Planned
+#### MongoDB Configuration (`mongodb_db_clone.conf`)
 ```bash
 # Database connection
 MONGO_HOST=localhost
 MONGO_PORT=27017
 MONGO_ADMIN_USER=admin
 MONGO_ADMIN_PASSWORD=your_password
+MONGO_AUTH_DATABASE=admin
+
+# Load balancer settings for connection testing
+MONGO_LB_HOST=your-mongodb-loadbalancer-host
+MONGO_LB_PORT=27017
 
 # Database prefix and cloning settings
 DB_PREFIX=preprod_
-DATABASES_TO_CLONE=myapp,analytics
+DATABASES_TO_CLONE=myapp,analytics,user_management
 
-# User settings
+# User role settings
 MONGO_APP_USER_SUFFIX=_app_user
-MONGO_OWNER_USER_SUFFIX=_owner_user
+
+# Additional settings
+CREATE_BACKUP_BEFORE_CLONE=true
+BACKUP_DIR=./backups
 ```
 
 ## Examples
@@ -175,6 +188,22 @@ The script will create:
 - Roles:
   - `r_rw_preprod_superapp_db` (app role with DML privileges - read-write)
   - `r_rc_preprod_superapp_db` (owner role with full privileges - read-create)
+
+## Examples
+
+### MongoDB Example
+
+If you have a database `superapp` and configure:
+```bash
+DB_PREFIX=preprod_
+DATABASES_TO_CLONE=superapp
+MONGO_LB_HOST=mongodb-lb.company.com
+```
+
+The script will create:
+- Database: `preprod_superapp` (clone of `superapp`)
+- Users:
+  - `superapp_app_user` (app user with auto-generated password, readWrite role)
 
 ## Database-Specific Features
 
@@ -215,17 +244,38 @@ When `LB_HOST` is configured, the script automatically tests user connections th
 - Search path configuration
 - Database accessibility
 
+### MongoDB (Current Implementation)
+
+#### Role-Based Access Control (RBAC)
+The script implements MongoDB's built-in role-based security:
+
+1. **Dump/Restore Cloning**: Uses `mongodump` and `mongorestore` with namespace transformation
+2. **Database-level User Management**: Creates users directly in the cloned database
+3. **Role Assignment**: Assigns appropriate MongoDB built-in roles
+
+#### User Creation
+- **App User**: `{database_name}{MONGO_APP_USER_SUFFIX}` (auto-generated) - readWrite role
+- **Auto-generated usernames and passwords** for enhanced security
+
+#### Role-Based Privileges
+- **App Role** (`readWrite`):
+  - Read and write access to all collections
+  - Create, read, update, delete operations
+  - Index management
+
+#### Connection Testing
+When `MONGO_USER_CONNSTRING_TEMPLATE` is configured, the script automatically tests user connections to verify:
+- User authentication works via replica set
+- Proper role assignment
+- Database accessibility
+- Read and write operations work correctly
+- Supports both replica set connection strings and primary node fallback
+
 ### MySQL (Planned Implementation)
 - Database-based user management
 - Privilege separation for read/write vs admin users
 - Load balancer testing support
 - Logical backup/restore cloning method
-
-### MongoDB (Planned Implementation)
-- Collection-based user management
-- Role-based access control (RBAC)
-- Load balancer testing support
-- BSON backup/restore cloning method
 
 ## Password Management
 
@@ -303,7 +353,7 @@ database-cloner/
 ├── clone_databases.sh              # Main script (database-agnostic)
 ├── postgresql_db_clone.conf.example  # PostgreSQL configuration template
 ├── mysql_db_clone.conf.example        # MySQL configuration template (planned)
-├── mongodb_db_clone.conf.example      # MongoDB configuration template (planned)
+├── mongodb_db_clone.conf.example      # MongoDB configuration template
 ├── .gitignore                       # Git ignore file
 └── README.md                        # This documentation
 ```
@@ -328,12 +378,15 @@ database-cloner/
 - [ ] Backup/restore integration
 - [ ] Connection testing
 
-### Phase 3: MongoDB (📋 Planned)
-- [ ] Database cloning configuration
-- [ ] Role-based access control
-- [ ] Load balancer support
-- [ ] BSON backup/restore
-- [ ] Connection testing
+### Phase 3: MongoDB (✅ Complete)
+- [x] Database cloning configuration
+- [x] Role-based access control
+- [x] Load balancer support
+- [x] BSON backup/restore
+- [x] Connection testing
+- [x] User and role management
+- [x] Namespace transformation for prefixing
+- [x] Credential management and summary files
 
 ### Phase 4: Enhancements (📋 Planned)
 - [ ] Web interface for configuration

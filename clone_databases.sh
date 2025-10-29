@@ -72,19 +72,51 @@ read_config() {
     # Create log file directory if it doesn't exist
     mkdir -p "$(dirname "$LOG_FILE")"
 
-    # Validate required configuration
-    local required_vars=("PG_HOST" "PG_PORT" "PG_SUPERUSER" "DB_PREFIX" "DATABASES_TO_CLONE")
-    for var in "${required_vars[@]}"; do
-        if [[ -z "${!var:-}" ]]; then
-            log_error "Required configuration variable not set: $var"
-            exit 1
-        fi
-    done
+    # Database-specific configuration validation
+    if [[ "$DB_TYPE" == "postgresql" ]]; then
+        # PostgreSQL required variables
+        local required_vars=("PG_HOST" "PG_PORT" "PG_SUPERUSER" "DB_PREFIX" "DATABASES_TO_CLONE")
+        for var in "${required_vars[@]}"; do
+            if [[ -z "${!var:-}" ]]; then
+                log_error "Required configuration variable not set: $var"
+                exit 1
+            fi
+        done
 
-    # Set default values for optional variables
-    APP_ROLE_PREFIX="${APP_ROLE_PREFIX:-r_rw_}"
-    OWNER_ROLE_PREFIX="${OWNER_ROLE_PREFIX:-r_rc_}"
-    SOURCE_SCHEMA_NAME="${SOURCE_SCHEMA_NAME:-public}"
+        # Set default values for optional PostgreSQL variables
+        APP_ROLE_PREFIX="${APP_ROLE_PREFIX:-r_rw_}"
+        OWNER_ROLE_PREFIX="${OWNER_ROLE_PREFIX:-r_rc_}"
+        SOURCE_SCHEMA_NAME="${SOURCE_SCHEMA_NAME:-public}"
+
+    elif [[ "$DB_TYPE" == "mongodb" ]]; then
+        # Hybrid approach: primary node for dump/restore, connection string for user testing
+        local required_vars=("MONGO_PRIMARY_HOST" "MONGO_PRIMARY_PORT" "MONGO_ADMIN_USER" "MONGO_ADMIN_PASSWORD" "DB_PREFIX" "DATABASES_TO_CLONE")
+        for var in "${required_vars[@]}"; do
+            if [[ -z "${!var:-}" ]]; then
+                log_error "Required configuration variable not set: $var"
+                exit 1
+            fi
+        done
+
+        # Set default values for optional MongoDB variables
+        MONGO_AUTH_DATABASE="${MONGO_AUTH_DATABASE:-admin}"
+        MONGO_APP_USER_SUFFIX="${MONGO_APP_USER_SUFFIX:-_app_user}"
+        TEST_USER_CONNECTIONS="${TEST_USER_CONNECTIONS:-true}"
+
+        # Build primary node connection string for dump/restore operations
+        MONGO_PRIMARY_URI="mongodb://${MONGO_ADMIN_USER}:${MONGO_ADMIN_PASSWORD}@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
+
+        log_info "MongoDB configuration loaded - Primary node: ${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}"
+        if [[ -n "${MONGO_USER_CONNSTRING_TEMPLATE:-}" ]]; then
+            log_info "User connection string template configured for testing"
+        else
+            log_info "User connection testing will use primary node"
+        fi
+
+    else
+        log_error "Unsupported database type: $DB_TYPE"
+        exit 1
+    fi
 
     log_success "Configuration loaded successfully"
 }
@@ -93,13 +125,25 @@ read_config() {
 test_connection() {
     log_info "Testing database connection..."
 
-    if PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
-        log_success "Database connection successful"
-        return 0
-    else
-        log_error "Failed to connect to database"
-        log_error "Please check your connection settings in $CONFIG_FILE"
-        exit 1
+    if [[ "$DB_TYPE" == "postgresql" ]]; then
+        if PGPASSWORD="$PG_SUPERUSER_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_SUPERUSER" -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+            log_success "PostgreSQL connection successful"
+            return 0
+        else
+            log_error "Failed to connect to PostgreSQL"
+            log_error "Please check your connection settings in $CONFIG_FILE"
+            exit 1
+        fi
+
+    elif [[ "$DB_TYPE" == "mongodb" ]]; then
+        if mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1; then
+            log_success "MongoDB primary node connection successful"
+            return 0
+        else
+            log_error "Failed to connect to MongoDB primary node"
+            log_error "Please check your primary node settings in $CONFIG_FILE"
+            exit 1
+        fi
     fi
 }
 
@@ -593,9 +637,265 @@ check_database_connections() {
     fi
 }
 
+# ============================================================================
+# MONGODB-SPECIFIC FUNCTIONS
+# ============================================================================
+
+# Function to validate source MongoDB database exists
+validate_mongo_database() {
+    local db_name=$1
+
+    if mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.getSiblingDB('$db_name').runCommand({ping: 1})" 2>>"$LOG_FILE" | grep -q "ok" 2>/dev/null; then
+        return 0
+    else
+        log_error "Source MongoDB database does not exist: $db_name"
+        return 1
+    fi
+}
+
+# Function to backup MongoDB database
+backup_mongo_database() {
+    local source_db=$1
+    local backup_file="$BACKUP_DIR/${source_db}_$(date +%Y%m%d_%H%M%S)"
+
+    log_info "Creating backup of MongoDB database: $source_db using primary node"
+
+    if mongodump --uri="$MONGO_PRIMARY_URI" --db="$source_db" --out="$backup_file" 2>> "$LOG_FILE"; then
+        log_success "MongoDB backup created: $backup_file"
+        return 0
+    else
+        log_error "Failed to create backup of MongoDB database: $source_db"
+        return 1
+    fi
+}
+
+# Function to clone MongoDB database
+clone_mongo_database() {
+    local source_db=$1
+    local target_db="${DB_PREFIX}${source_db}"
+
+    log_info "Cloning MongoDB database: $source_db -> $target_db using primary node"
+
+    # Check if target database already exists
+    if mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.getSiblingDB('$target_db').runCommand({ping: 1})" 2>>"$LOG_FILE" | grep -q "ok" 2>/dev/null; then
+        log_warning "Target MongoDB database $target_db already exists, skipping..."
+        return 0
+    fi
+
+    # Create backup if configured
+    if [[ "${CREATE_BACKUP_BEFORE_CLONE:-false}" == "true" ]]; then
+        if ! backup_mongo_database "$source_db"; then
+            log_error "Backup failed, aborting clone for $source_db"
+            return 1
+        fi
+    fi
+
+    # Create temporary directory for the dump
+    local temp_dump_dir=$(mktemp -d)
+    trap "rm -rf $temp_dump_dir" EXIT
+
+    # Dump the source database
+    log_info "Dumping source database: $source_db from primary node"
+    if ! mongodump --uri="$MONGO_PRIMARY_URI" --db="$source_db" --out="$temp_dump_dir" 2>> "$LOG_FILE"; then
+        log_error "Failed to dump source database: $source_db"
+        return 1
+    fi
+
+    # Restore to new database with namespace transformation
+    log_info "Restoring to target database: $target_db to primary node"
+    if mongorestore --uri="$MONGO_PRIMARY_URI" --nsFrom="${source_db}.*" --nsTo="${target_db}.*" \
+        --drop "$temp_dump_dir/${source_db}" 2>> "$LOG_FILE"; then
+        log_success "MongoDB database cloned successfully: $target_db"
+        return 0
+    else
+        log_error "Failed to clone MongoDB database: $source_db -> $target_db"
+        return 1
+    fi
+}
+
+# Function to create MongoDB users and roles
+create_mongo_users() {
+    local target_db=$1
+
+    log_info "Creating app user for MongoDB database: $target_db"
+
+    # Extract base database name (remove prefix if exists)
+    local base_db_name="$target_db"
+    if [[ "$target_db" == "$DB_PREFIX"* ]]; then
+        base_db_name="${target_db#$DB_PREFIX}"
+    fi
+
+    # Generate app username and password
+    local app_user_name="${base_db_name}${MONGO_APP_USER_SUFFIX}"
+    local password_app_user=$(generate_password 16)
+
+    log_info "Processing user configuration for database: $target_db"
+    log_info "App user: $app_user_name"
+
+    # Create app user with readWrite role
+    log_info "Creating app user with readWrite privileges on primary node"
+    mongosh --uri="$MONGO_PRIMARY_URI" --eval "
+        db = db.getSiblingDB('$target_db');
+        db.createUser({
+            user: '$app_user_name',
+            pwd: '$password_app_user',
+            roles: [{ role: 'readWrite', db: '$target_db' }]
+        });
+    " 2>> "$LOG_FILE"
+
+    log_success "User configuration completed for MongoDB database: $target_db"
+    log_info "Created app user: $app_user_name (readWrite)"
+
+    # Save passwords to a file
+    local password_file="$SCRIPT_DIR/passwords_${target_db}_$(date +%d%m%y).txt"
+    echo "MongoDB Database Cloning - Generated Passwords" > "$password_file"
+    echo "Generated on: $(date)" >> "$password_file"
+    echo "Database: $target_db" >> "$password_file"
+    echo "===============================================" >> "$password_file"
+    echo "" >> "$password_file"
+    echo "App User (Read/Write):" >> "$password_file"
+    echo "Username: $app_user_name" >> "$password_file"
+    echo "Password: $password_app_user" >> "$password_file"
+    echo "" >> "$password_file"
+    echo "Connection String Template:" >> "$password_file"
+    echo "mongodb://<<USERNAME>>:<<PASSWORD>>@<<HOSTS>>/$target_db?<<OPTIONS>>" >> "$password_file"
+    echo "" >> "$password_file"
+    echo "Role assigned:" >> "$password_file"
+    echo "- $app_user_name -> readWrite" >> "$password_file"
+
+    log_success "Passwords saved to: $password_file"
+
+    # Test user connections if configured
+    if [[ "${TEST_USER_CONNECTIONS:-true}" == "true" ]]; then
+        test_mongo_app_user_connection "$target_db" "$base_db_name" "$password_app_user"
+    else
+        log_info "User connection testing skipped (TEST_USER_CONNECTIONS=false)"
+    fi
+
+    # Store credentials for summary file
+    echo "$target_db:$app_user_name:$password_app_user" >> "$SCRIPT_DIR/.credentials_temp"
+}
+
+# Function to test MongoDB app user connection using connection string template or primary node
+test_mongo_app_user_connection() {
+    local target_db=$1
+    local base_db_name="$2"
+    local app_user_password="$3"
+
+    # Extract base database name (remove prefix if exists)
+    if [[ "$target_db" == "$DB_PREFIX"* ]]; then
+        base_db_name="${target_db#$DB_PREFIX}"
+    fi
+
+    local app_user_name="${base_db_name}${MONGO_APP_USER_SUFFIX}"
+
+    # Check if connection string template is configured, otherwise use primary node
+    if [[ -n "${MONGO_USER_CONNSTRING_TEMPLATE:-}" ]]; then
+        log_info "Testing MongoDB app user connection using connection string template"
+
+        # Build user connection string from template
+        local app_connstring=$(echo "$MONGO_USER_CONNSTRING_TEMPLATE" | sed "s/<<USERNAME>>/$app_user_name/g" | sed "s/<<PASSWORD>>/$app_user_password/g" | sed "s/<<DB_NAME>>/$target_db/g")
+        local connection_method="connection string"
+    else
+        log_info "Testing MongoDB app user connection using primary node"
+
+        # Build connection string for primary node
+        local app_connstring="mongodb://${app_user_name}:${app_user_password}@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${target_db}"
+        local connection_method="primary node"
+    fi
+
+    # Test app user connection
+    log_info "Testing app user connection: $app_user_name using $connection_method"
+    if mongosh --uri="$app_connstring" --eval "db.runCommand({ping: 1})" >/dev/null 2>> "$LOG_FILE"; then
+        log_success "App user $app_user_name can connect using $connection_method"
+
+        # Test app user read privileges
+        log_info "Testing app user read privileges"
+        if mongosh --uri="$app_connstring" --eval "db.getCollectionNames()" >/dev/null 2>> "$LOG_FILE"; then
+            log_success "App user $app_user_name has read access to database $target_db"
+        else
+            log_warning "App user $app_user_name read test failed - check privileges"
+        fi
+
+        # Test app user write privileges
+        log_info "Testing app user write privileges"
+        if mongosh --uri="$app_connstring" --eval "
+            db = db.getSiblingDB('$target_db');
+            db.test_collection.insertOne({test: 1});
+            db.test_collection.deleteOne({test: 1});
+        " >/dev/null 2>> "$LOG_FILE"; then
+            log_success "App user $app_user_name has write access to database $target_db"
+        else
+            log_warning "App user $app_user_name write test failed - check privileges"
+        fi
+    else
+        log_error "App user $app_user_name cannot connect using $connection_method"
+        return 1
+    fi
+
+    log_success "MongoDB app user connection tests completed for database: $target_db"
+    return 0
+}
+
+# Function to create MongoDB credential summary file
+create_mongo_credential_summary() {
+    local temp_file="$SCRIPT_DIR/.credentials_temp"
+    local summary_file="$SCRIPT_DIR/credentials_$(date +%d%m%y).txt"
+
+    if [[ ! -f "$temp_file" ]]; then
+        log_info "No MongoDB credentials found to create summary file."
+        return 0
+    fi
+
+    log_info "Creating MongoDB credential summary file: $summary_file"
+
+    # Create summary file header
+    {
+        echo "MongoDB Database Cloning - Credential Summary"
+        echo "Generated on: $(date)"
+        echo "==============================================="
+        echo ""
+    } > "$summary_file"
+
+    # Process each database credentials (now only app user)
+    while IFS=':' read -r target_db app_user app_password; do
+        {
+            echo "database name : $target_db"
+            echo "app user: $app_user"
+            echo "password: $app_password"
+            if [[ -n "${MONGO_USER_CONNSTRING_TEMPLATE:-}" ]]; then
+                echo "connection method: replica set connection string"
+            else
+                echo "connection method: primary node"
+            fi
+            echo ""
+        } >> "$summary_file"
+    done < "$temp_file"
+
+    # Add connection information footer
+    {
+        echo "==============================================="
+        echo "Connection Information:"
+        echo "Primary Node: ${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}"
+        if [[ -n "${MONGO_USER_CONNSTRING_TEMPLATE:-}" ]]; then
+            echo ""
+            echo "User Connection String Template:"
+            echo "$MONGO_USER_CONNSTRING_TEMPLATE"
+        fi
+        echo ""
+        echo "Note: Keep this file secure and delete after use."
+        echo "==============================================="
+    } >> "$summary_file"
+
+    # Clean up temp file
+    rm -f "$temp_file"
+
+    log_success "MongoDB credential summary created: $summary_file"
+}
+
 # Main execution function
 main() {
-    log_info "Starting PostgreSQL database cloning process"
+    log_info "Starting database cloning process for $DB_TYPE"
     log_info "Script directory: $SCRIPT_DIR"
 
     # Clean up any existing temp credentials file
@@ -620,36 +920,64 @@ main() {
 
         log_info "Processing database: $source_db"
 
-        # Validate source database exists
-        if ! validate_source_database "$source_db"; then
-            log_warning "Skipping database: $source_db (does not exist)"
-            continue
-        fi
+        if [[ "$DB_TYPE" == "postgresql" ]]; then
+            # PostgreSQL-specific processing
+            # Validate source database exists
+            if ! validate_source_database "$source_db"; then
+                log_warning "Skipping database: $source_db (does not exist)"
+                continue
+            fi
 
-        # Check for active connections on both source and target databases
-        if ! check_database_connections "$source_db"; then
-            log_error "Skipping database: $source_db (active connections detected)"
-            continue
-        fi
+            # Check for active connections on both source and target databases
+            if ! check_database_connections "$source_db"; then
+                log_error "Skipping database: $source_db (active connections detected)"
+                continue
+            fi
 
-        # Clone database
-        if clone_database "$source_db"; then
-            local target_db="${DB_PREFIX}${source_db}"
+            # Clone database
+            if clone_database "$source_db"; then
+                local target_db="${DB_PREFIX}${source_db}"
 
-            # Create users and schema for the cloned database
-            create_users "$target_db"
+                # Create users and schema for the cloned database
+                create_users "$target_db"
 
-            ((success_count++))
-            log_success "Successfully processed database: $source_db"
-        else
-            log_error "Failed to process database: $source_db"
+                ((success_count++))
+                log_success "Successfully processed database: $source_db"
+            else
+                log_error "Failed to process database: $source_db"
+            fi
+
+        elif [[ "$DB_TYPE" == "mongodb" ]]; then
+            # MongoDB-specific processing
+            # Validate source database exists
+            if ! validate_mongo_database "$source_db"; then
+                log_warning "Skipping database: $source_db (does not exist)"
+                continue
+            fi
+
+            # Clone database
+            if clone_mongo_database "$source_db"; then
+                local target_db="${DB_PREFIX}${source_db}"
+
+                # Create users for the cloned database
+                create_mongo_users "$target_db"
+
+                ((success_count++))
+                log_success "Successfully processed database: $source_db"
+            else
+                log_error "Failed to process database: $source_db"
+            fi
         fi
 
         echo "----------------------------------------"
     done
 
     # Create credential summary file
-    create_credential_summary
+    if [[ "$DB_TYPE" == "postgresql" ]]; then
+        create_credential_summary
+    elif [[ "$DB_TYPE" == "mongodb" ]]; then
+        create_mongo_credential_summary
+    fi
 
     # Summary
     log_info "Cloning process completed"
