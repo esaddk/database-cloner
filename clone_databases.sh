@@ -108,8 +108,12 @@ read_config() {
             MONGO_ADMIN_PASSWORD=$(prompt_password "Enter MongoDB admin password for user '$MONGO_ADMIN_USER'")
         fi
 
+        # URL encode username and password to handle special characters
+        local encoded_user=$(echo "$MONGO_ADMIN_USER" | sed 's/@/%40/g' | sed 's/:/%3A/g')
+        local encoded_password=$(echo "$MONGO_ADMIN_PASSWORD" | sed 's/@/%40/g' | sed 's/:/%3A/g')
+
         # Build primary node connection string for dump/restore operations
-        MONGO_PRIMARY_URI="mongodb://${MONGO_ADMIN_USER}:${MONGO_ADMIN_PASSWORD}@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
+        MONGO_PRIMARY_URI="mongodb://${encoded_user}:${encoded_password}@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
 
         # Log masked connection string for debugging
         local masked_uri="mongodb://${MONGO_ADMIN_USER}:****@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
@@ -719,12 +723,31 @@ validate_mongo_database() {
     if command -v mongosh >/dev/null 2>&1; then
         log_info "Using mongosh client for database validation"
         log_info "Database check command: mongosh --uri=\"mongodb://****:****@****:****/****\" --eval \"use $db_name; db.runCommand({listCollections: 1, limit: 1})\""
+
+        # First try with URI
         check_result=$(mongosh --uri="$MONGO_PRIMARY_URI" --eval "use $db_name; db.runCommand({listCollections: 1, limit: 1})" 2>>"$LOG_FILE")
+
+        # If URI fails, try with individual parameters
+        if [[ $? -ne 0 ]]; then
+            log_info "URI connection failed, trying with individual parameters"
+            log_info "Database check command: mongosh --host=\"$MONGO_PRIMARY_HOST\" --port=\"$MONGO_PRIMARY_PORT\" --username=\"$MONGO_ADMIN_USER\" --password=\"$MONGO_ADMIN_PASSWORD\" --authenticationDatabase=\"$MONGO_AUTH_DATABASE\" --eval \"use $db_name; db.runCommand({listCollections: 1, limit: 1})\""
+            check_result=$(mongosh --host="$MONGO_PRIMARY_HOST" --port="$MONGO_PRIMARY_PORT" --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase="$MONGO_AUTH_DATABASE" --eval "use $db_name; db.runCommand({listCollections: 1, limit: 1})" 2>>"$LOG_FILE")
+        fi
+
     # Fallback to mongo client (legacy)
     elif command -v mongo >/dev/null 2>&1; then
         log_info "Using legacy mongo client for database validation"
         log_info "Database check command: mongo \"mongodb://****:****@****:****/****\" --eval \"use $db_name; db.runCommand({listCollections: 1, limit: 1})\""
+
+        # First try with URI
         check_result=$(mongo "$MONGO_PRIMARY_URI" --eval "use $db_name; db.runCommand({listCollections: 1, limit: 1})" 2>>"$LOG_FILE")
+
+        # If URI fails, try with individual parameters
+        if [[ $? -ne 0 ]]; then
+            log_info "URI connection failed, trying with individual parameters"
+            log_info "Database check command: mongo --host=\"$MONGO_PRIMARY_HOST\" --port=\"$MONGO_PRIMARY_PORT\" --username=\"$MONGO_ADMIN_USER\" --password=\"$MONGO_ADMIN_PASSWORD\" --authenticationDatabase=\"$MONGO_AUTH_DATABASE\" --eval \"use $db_name; db.runCommand({listCollections: 1, limit: 1})\""
+            check_result=$(mongo --host="$MONGO_PRIMARY_HOST" --port="$MONGO_PRIMARY_PORT" --username="$MONGO_ADMIN_USER" --password="$MONGO_ADMIN_PASSWORD" --authenticationDatabase="$MONGO_AUTH_DATABASE" --eval "use $db_name; db.runCommand({listCollections: 1, limit: 1})" 2>>"$LOG_FILE")
+        fi
     else
         log_error "Neither mongosh nor mongo client found in PATH"
         return 1
