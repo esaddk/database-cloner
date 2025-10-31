@@ -90,7 +90,7 @@ read_config() {
 
     elif [[ "$DB_TYPE" == "mongodb" ]]; then
         # Hybrid approach: primary node for dump/restore, connection string for user testing
-        local required_vars=("MONGO_PRIMARY_HOST" "MONGO_PRIMARY_PORT" "MONGO_ADMIN_USER" "MONGO_ADMIN_PASSWORD" "DB_PREFIX" "DATABASES_TO_CLONE")
+        local required_vars=("MONGO_PRIMARY_HOST" "MONGO_PRIMARY_PORT" "MONGO_ADMIN_USER" "DB_PREFIX" "DATABASES_TO_CLONE")
         for var in "${required_vars[@]}"; do
             if [[ -z "${!var:-}" ]]; then
                 log_error "Required configuration variable not set: $var"
@@ -102,6 +102,11 @@ read_config() {
         MONGO_AUTH_DATABASE="${MONGO_AUTH_DATABASE:-admin}"
         MONGO_APP_USER_SUFFIX="${MONGO_APP_USER_SUFFIX:-_app_user}"
         TEST_USER_CONNECTIONS="${TEST_USER_CONNECTIONS:-true}"
+
+        # Prompt for MongoDB admin password
+        if [[ -z "${MONGO_ADMIN_PASSWORD:-}" ]]; then
+            MONGO_ADMIN_PASSWORD=$(prompt_password "Enter MongoDB admin password for user '$MONGO_ADMIN_USER'")
+        fi
 
         # Build primary node connection string for dump/restore operations
         MONGO_PRIMARY_URI="mongodb://${MONGO_ADMIN_USER}:${MONGO_ADMIN_PASSWORD}@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
@@ -215,6 +220,34 @@ generate_password() {
     local length=${1:-16}
     # Generate password with letters and numbers
     local password=$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c $length)
+    echo "$password"
+}
+
+# Function to prompt for password
+prompt_password() {
+    local prompt_text="$1"
+    local password
+
+    while true; do
+        read -s -p "$prompt_text: " password
+        echo
+
+        if [[ -z "$password" ]]; then
+            echo -e "${RED}Error: Password cannot be empty${NC}" >&2
+            continue
+        fi
+
+        read -s -p "Confirm password: " password_confirm
+        echo
+
+        if [[ "$password" != "$password_confirm" ]]; then
+            echo -e "${RED}Error: Passwords do not match${NC}" >&2
+            continue
+        fi
+
+        break
+    done
+
     echo "$password"
 }
 
