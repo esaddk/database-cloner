@@ -718,13 +718,13 @@ validate_mongo_database() {
     # Try mongosh first (modern MongoDB client)
     if command -v mongosh >/dev/null 2>&1; then
         log_info "Using mongosh client for database validation"
-        log_info "Database check command: mongosh --uri=\"mongodb://****:****@****:****/****\" --eval \"db.getSiblingDB('$db_name').runCommand({ping: 1})\""
-        check_result=$(mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.getSiblingDB('$db_name').runCommand({ping: 1})" 2>>"$LOG_FILE")
+        log_info "Database check command: mongosh --uri=\"mongodb://****:****@****:****/****\" --eval \"use $db_name; db.runCommand({listCollections: 1, limit: 1})\""
+        check_result=$(mongosh --uri="$MONGO_PRIMARY_URI" --eval "use $db_name; db.runCommand({listCollections: 1, limit: 1})" 2>>"$LOG_FILE")
     # Fallback to mongo client (legacy)
     elif command -v mongo >/dev/null 2>&1; then
         log_info "Using legacy mongo client for database validation"
-        log_info "Database check command: mongo \"mongodb://****:****@****:****/****\" --eval \"db.getSiblingDB('$db_name').runCommand({ping: 1})\""
-        check_result=$(mongo "$MONGO_PRIMARY_URI" --eval "db.getSiblingDB('$db_name').runCommand({ping: 1})" 2>>"$LOG_FILE")
+        log_info "Database check command: mongo \"mongodb://****:****@****:****/****\" --eval \"use $db_name; db.runCommand({listCollections: 1, limit: 1})\""
+        check_result=$(mongo "$MONGO_PRIMARY_URI" --eval "use $db_name; db.runCommand({listCollections: 1, limit: 1})" 2>>"$LOG_FILE")
     else
         log_error "Neither mongosh nor mongo client found in PATH"
         return 1
