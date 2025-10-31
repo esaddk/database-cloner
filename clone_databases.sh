@@ -711,10 +711,20 @@ check_database_connections() {
 validate_mongo_database() {
     local db_name=$1
 
-    if mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.getSiblingDB('$db_name').runCommand({ping: 1})" 2>>"$LOG_FILE" | grep -q "ok" 2>/dev/null; then
+    log_info "Checking if database '$db_name' exists..."
+
+    # Use mongosh to check if database exists
+    local check_cmd="mongosh --uri=\"$MONGO_PRIMARY_URI\" --eval \"db.getSiblingDB('$db_name').runCommand({ping: 1})\""
+    log_info "Database check command: mongosh --uri=\"mongodb://****:****@****:****/****\" --eval \"db.getSiblingDB('$db_name').runCommand({ping: 1})\""
+
+    local check_result=$(mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.getSiblingDB('$db_name').runCommand({ping: 1})" 2>>"$LOG_FILE")
+    log_info "Database check result: $check_result"
+
+    if echo "$check_result" | grep -q "ok.*1" 2>/dev/null; then
+        log_info "Database '$db_name' exists and is accessible"
         return 0
     else
-        log_error "Source MongoDB database does not exist: $db_name"
+        log_error "Source MongoDB database does not exist or is not accessible: $db_name"
         return 1
     fi
 }
