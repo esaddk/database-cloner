@@ -150,6 +150,9 @@ test_connection() {
         # Try mongosh first (modern MongoDB client)
         if command -v mongosh >/dev/null 2>&1; then
             log_info "Using mongosh client"
+            local masked_uri="mongodb://${MONGO_ADMIN_USER}:****@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
+            local test_cmd="mongosh --uri=\"$masked_uri\" --eval \"db.runCommand({ping: 1})\""
+            log_info "Testing connection command: $test_cmd"
             if mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1; then
                 log_success "MongoDB primary node connection successful"
                 return 0
@@ -159,6 +162,9 @@ test_connection() {
         # Fallback to mongo client (legacy)
         elif command -v mongo >/dev/null 2>&1; then
             log_info "Using legacy mongo client"
+            local masked_uri="mongodb://${MONGO_ADMIN_USER}:****@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
+            local test_cmd="mongo \"$masked_uri\" --eval \"db.runCommand({ping: 1})\""
+            log_info "Testing connection command: $test_cmd"
             if mongo "$MONGO_PRIMARY_URI" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1; then
                 log_success "MongoDB primary node connection successful"
                 return 0
