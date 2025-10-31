@@ -153,11 +153,13 @@ test_connection() {
             local masked_uri="mongodb://${MONGO_ADMIN_USER}:****@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
             local test_cmd="mongosh --uri=\"$masked_uri\" --eval \"db.runCommand({ping: 1})\""
             log_info "Testing connection command: $test_cmd"
-            if mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1; then
+            local error_output=$(mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.runCommand({ping: 1})" 2>&1)
+            if [[ $? -eq 0 ]]; then
                 log_success "MongoDB primary node connection successful"
                 return 0
             else
                 log_error "Connection test with mongosh failed"
+                log_error "Error output: $error_output"
             fi
         # Fallback to mongo client (legacy)
         elif command -v mongo >/dev/null 2>&1; then
@@ -165,11 +167,13 @@ test_connection() {
             local masked_uri="mongodb://${MONGO_ADMIN_USER}:****@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
             local test_cmd="mongo \"$masked_uri\" --eval \"db.runCommand({ping: 1})\""
             log_info "Testing connection command: $test_cmd"
-            if mongo "$MONGO_PRIMARY_URI" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1; then
+            local error_output=$(mongo "$MONGO_PRIMARY_URI" --eval "db.runCommand({ping: 1})" 2>&1)
+            if [[ $? -eq 0 ]]; then
                 log_success "MongoDB primary node connection successful"
                 return 0
             else
                 log_error "Connection test with mongo client failed"
+                log_error "Error output: $error_output"
             fi
         else
             log_error "Neither mongosh nor mongo client found in PATH"
