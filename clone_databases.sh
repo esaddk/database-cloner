@@ -144,14 +144,35 @@ test_connection() {
         fi
 
     elif [[ "$DB_TYPE" == "mongodb" ]]; then
-        if mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1; then
-            log_success "MongoDB primary node connection successful"
-            return 0
+        # Try different MongoDB clients and connection methods
+        log_info "Testing MongoDB connection with primary node..."
+
+        # Try mongosh first (modern MongoDB client)
+        if command -v mongosh >/dev/null 2>&1; then
+            log_info "Using mongosh client"
+            if mongosh --uri="$MONGO_PRIMARY_URI" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1; then
+                log_success "MongoDB primary node connection successful"
+                return 0
+            else
+                log_error "Connection test with mongosh failed"
+            fi
+        # Fallback to mongo client (legacy)
+        elif command -v mongo >/dev/null 2>&1; then
+            log_info "Using legacy mongo client"
+            if mongo "$MONGO_PRIMARY_URI" --eval "db.runCommand({ping: 1})" >/dev/null 2>&1; then
+                log_success "MongoDB primary node connection successful"
+                return 0
+            else
+                log_error "Connection test with mongo client failed"
+            fi
         else
-            log_error "Failed to connect to MongoDB primary node"
-            log_error "Please check your primary node settings in $CONFIG_FILE"
-            exit 1
+            log_error "Neither mongosh nor mongo client found in PATH"
         fi
+
+        log_error "Failed to connect to MongoDB primary node"
+        log_error "Please check your primary node settings in $CONFIG_FILE"
+        log_error "Connection URI being used: $masked_uri"
+        exit 1
     fi
 }
 
