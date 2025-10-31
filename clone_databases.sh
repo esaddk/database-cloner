@@ -111,6 +111,9 @@ read_config() {
         # Build primary node connection string for dump/restore operations
         MONGO_PRIMARY_URI="mongodb://${MONGO_ADMIN_USER}:${MONGO_ADMIN_PASSWORD}@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
 
+        # Log masked connection string for debugging
+        local masked_uri="mongodb://${MONGO_ADMIN_USER}:****@${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}/${MONGO_AUTH_DATABASE}"
+        log_info "MongoDB connection URI: $masked_uri"
         log_info "MongoDB configuration loaded - Primary node: ${MONGO_PRIMARY_HOST}:${MONGO_PRIMARY_PORT}"
         if [[ -n "${MONGO_USER_CONNSTRING_TEMPLATE:-}" ]]; then
             log_info "User connection string template configured for testing"
