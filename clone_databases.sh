@@ -996,7 +996,7 @@ main() {
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     # Check if configuration file exists
     if [[ ! -f "$CONFIG_FILE" ]]; then
-        local example_config="${SCRIPT_DIR}/${DB_TYPE}_db_clone.conf.example"
+        example_config="${SCRIPT_DIR}/${DB_TYPE}_db_clone.conf.example"
         echo -e "${RED}Error: Configuration file not found: $CONFIG_FILE${NC}"
         echo -e "${YELLOW}Please copy the example configuration file and modify it:${NC}"
         echo -e "${BLUE}cp ${DB_TYPE}_db_clone.conf.example ${DB_TYPE}_db_clone.conf${NC}"
