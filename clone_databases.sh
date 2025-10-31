@@ -171,7 +171,6 @@ test_connection() {
 
         log_error "Failed to connect to MongoDB primary node"
         log_error "Please check your primary node settings in $CONFIG_FILE"
-        log_error "Connection URI being used: $masked_uri"
         exit 1
     fi
 }
